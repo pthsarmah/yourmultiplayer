@@ -5,6 +5,7 @@ node_modules
 out
 dist
 *.tgz
+words.db
 
 # code coverage
 coverage
