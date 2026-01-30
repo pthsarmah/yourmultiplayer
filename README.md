@@ -1,20 +1,21 @@
-# Your Multiplayer
+# Word Oracle
 
-AI-generated casual multiplayer games. Players join a shared game room, describe what kind of game they'd like to play, and Claude AI generates a completely custom browser-based game tailored to the number of players.
+A multiplayer word guessing game powered by AI. Players join a game room, choose a theme, and take turns asking questions to an AI Oracle who knows a secret word. The Oracle answers truthfully without revealing the word directly.
 
 ## Features
 
-- **AI-Powered Game Generation** - Creates unique games based on player prompts using Claude AI
+- **AI Oracle** - An LLM-powered oracle answers questions about the secret word using web search for accurate responses
+- **Theme Categories** - 12 themes including Sports, Celebrities, Food, Animals, Movies, Music, History, Science, Geography, Gaming, and Literature
 - **Real-Time Multiplayer** - WebSocket-based synchronization for up to 8 players
-- **Dynamic Game Board** - Polygon-shaped board that adapts to player count (triangle for 3, square for 4, etc.)
-- **Cozy Aesthetic** - Warm colors, handwritten fonts, and playful animations
+- **Scoring System** - First to guess the word wins the round and earns a point
 
 ## Tech Stack
 
-- **Bun** - Runtime, package manager, and build tool
+- **Bun** - Runtime, package manager, and server
 - **React 19** - Frontend UI
 - **Tailwind CSS** - Styling
-- **Anthropic SDK** - Claude AI integration
+- **Groq API / Local LLM** - Oracle responses
+- **DuckDuckGo API** - Web search for context-aware answers
 - **WebSocket** - Real-time communication (Bun built-in)
 
 ## Getting Started
@@ -22,7 +23,7 @@ AI-generated casual multiplayer games. Players join a shared game room, describe
 ### Prerequisites
 
 - [Bun](https://bun.sh/) installed
-- An [Anthropic API key](https://console.anthropic.com/)
+- A [Groq API key](https://console.groq.com/) (or a local LLM server)
 
 ### Installation
 
@@ -32,10 +33,16 @@ bun install
 
 ### Configuration
 
-Create a `.env` file with your Anthropic API key:
+Create a `.env` file:
 
-```
-ANTHROPIC_API_KEY=your_api_key_here
+```bash
+# For Groq API (default)
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile  # optional
+
+# For local model (optional)
+USE_LOCAL_MODEL=true
+LOCAL_MODEL_URL=http://localhost:8080/v1/chat/completions
 ```
 
 ### Development
@@ -44,32 +51,30 @@ ANTHROPIC_API_KEY=your_api_key_here
 bun dev
 ```
 
-This starts the server with hot reload enabled.
-
 ### Production
 
 ```bash
 bun start
 ```
 
-## How It Works
+## How to Play
 
-1. Players connect to the game room via WebSocket
-2. Each player is assigned a unique ID, color, and auto-generated name
-3. Any player can describe the game they want to play
-4. Claude AI generates a complete game (HTML, CSS, JavaScript) based on the prompt and player count
-5. The game is broadcast to all players and rendered in the shared canvas
-6. Player actions are synchronized in real-time through WebSocket
+1. Players connect to the game at `http://localhost:3000`
+2. Each player gets a unique name, color, and avatar
+3. Select a theme category to start the game
+4. Ask the Oracle yes/no questions or descriptive questions about the secret word
+5. To make a guess, prefix your message with `Guess:` (e.g., "Guess: pizza")
+6. First player to guess correctly wins the round and scores a point
+7. A new word is chosen and the next round begins
 
 ## Project Structure
 
 ```
-├── index.ts          # Backend server with WebSocket handling
+├── index.ts          # Backend server with WebSocket and LLM integration
 ├── frontend.tsx      # React frontend component
 ├── index.html        # HTML entry point
 ├── styles.css        # Styling
-├── build.ts          # Build script
-├── bunfig.toml       # Bun configuration
+├── words.db          # SQLite database for word storage
 └── package.json      # Dependencies
 ```
 
