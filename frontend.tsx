@@ -31,6 +31,7 @@ interface Theme {
 }
 
 interface AppState {
+	roomId: string | null;
 	players: Player[];
 	playerCount: number;
 	currentPlayerId: string | null;
@@ -43,14 +44,61 @@ interface AppState {
 	// Theme system
 	currentTheme: string | null;
 	themeSelectionActive: boolean;
-	themeVotes: Record<string, string>; // playerId -> themeId
+	pendingTheme: string | null;
+	creatorId: string | null;
 	themes: Theme[];
+	gameOver: boolean;
+	winners: Player[];
 }
 
 const playerEmojis = ["🐰", "🐱", "🐶", "🐼", "🐨", "🦦", "🐧", "🐹"];
 
+function Lobby({ onCreateRoom, onJoinRoom, error }: { onCreateRoom: () => void, onJoinRoom: (code: string) => void, error: string | null }) {
+	const [roomCode, setRoomCode] = useState("");
+
+	return (
+		<div className="game-container theme-selection-container">
+			<h1 className="game-title">Word Oracle</h1>
+			<p className="game-subtitle">A multiplayer guessing game powered by AI</p>
+
+			<div className="lobby-card">
+				<h2 className="lobby-title">Start Playing</h2>
+				
+				<button className="create-room-btn" onClick={onCreateRoom}>
+					Create New Room
+				</button>
+
+				<div className="divider">
+					<span>OR</span>
+				</div>
+
+				<div className="join-room-section">
+					<input 
+						type="text" 
+						className="room-code-input" 
+						placeholder="Enter Room Code"
+						value={roomCode}
+						onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+						maxLength={8}
+					/>
+					<button 
+						className="join-room-btn" 
+						onClick={() => onJoinRoom(roomCode)}
+						disabled={roomCode.length < 4}
+					>
+						Join Room
+					</button>
+				</div>
+				
+				{error && <div className="error-message">{error}</div>}
+			</div>
+		</div>
+	);
+}
+
 function GameBoard() {
 	const [appState, setAppState] = useState<AppState>({
+		roomId: null,
 		players: [],
 		playerCount: 0,
 		currentPlayerId: null,
@@ -60,20 +108,22 @@ function GameBoard() {
 		thinkingForPlayers: [],
 		lastWinner: null,
 		hasSecretWord: false,
-		// Theme system
 		currentTheme: null,
-		themeSelectionActive: true,
-		themeVotes: {},
+		themeSelectionActive: false, // Default false until joined
+		pendingTheme: null,
+		creatorId: null,
 		themes: [],
+		gameOver: false,
+		winners: [],
 	});
 
 	const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-
 	const [ws, setWs] = useState<WebSocket | null>(null);
 	const [inputValue, setInputValue] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [skippedWord, setSkippedWord] = useState<{ word: string; theme: string } | null>(null);
 	const chatContainerRef = useRef<HTMLDivElement>(null);
+	const [copySuccess, setCopySuccess] = useState(false);
 
 	// Connect to WebSocket
 	useEffect(() => {
@@ -82,16 +132,33 @@ function GameBoard() {
 
 		socket.onopen = () => {
 			console.log("Connected to game server");
-			setAppState((prev) => ({ ...prev, connected: true }));
+			// Check URL for room code
+			const params = new URLSearchParams(window.location.search);
+			const roomParam = params.get("room");
+			if (roomParam) {
+				console.log("Auto-joining room:", roomParam);
+				// Small delay to ensure WS is ready
+				setTimeout(() => {
+					socket.send(JSON.stringify({ type: "join_room", roomId: roomParam }));
+				}, 100);
+			}
 		};
 
 		socket.onmessage = (event) => {
 			try {
 				const data = JSON.parse(event.data);
 
-				if (data.type === "welcome") {
+				if (data.type === "connected") {
+					setAppState((prev) => ({ ...prev, connected: true }));
+				} else if (data.type === "welcome") {
+					// Update URL without reloading
+					const newUrl = new URL(window.location.href);
+					newUrl.searchParams.set("room", data.roomId);
+					window.history.pushState({}, "", newUrl);
+
 					setAppState((prev) => ({
 						...prev,
+						roomId: data.roomId,
 						players: data.players,
 						playerCount: data.playerCount,
 						currentPlayerId: data.playerId,
@@ -102,12 +169,16 @@ function GameBoard() {
 						hasSecretWord: data.hasSecretWord,
 						currentTheme: data.currentTheme,
 						themeSelectionActive: data.themeSelectionActive,
-						themeVotes: data.themeVotes || {},
+						pendingTheme: data.pendingTheme,
+						creatorId: data.creatorId,
 						themes: data.themes || [],
+						gameOver: false,
+						winners: [],
 					}));
 				} else if (data.type === "state") {
 					setAppState((prev) => ({
 						...prev,
+						roomId: data.roomId || prev.roomId,
 						players: data.players,
 						playerCount: data.playerCount,
 						round: data.round,
@@ -117,7 +188,8 @@ function GameBoard() {
 						hasSecretWord: data.hasSecretWord,
 						currentTheme: data.currentTheme,
 						themeSelectionActive: data.themeSelectionActive,
-						themeVotes: data.themeVotes || {},
+						pendingTheme: data.pendingTheme,
+						creatorId: data.creatorId,
 						themes: data.themes || [],
 					}));
 				} else if (data.type === "theme_update") {
@@ -125,8 +197,11 @@ function GameBoard() {
 						...prev,
 						currentTheme: data.currentTheme,
 						themeSelectionActive: data.themeSelectionActive,
-						themeVotes: data.themeVotes || {},
+						pendingTheme: data.pendingTheme,
+						creatorId: data.creatorId,
 						themes: data.themes || prev.themes,
+						gameOver: false,
+						winners: [],
 					}));
 				} else if (data.type === "chat_message") {
 					setAppState((prev) => {
@@ -153,6 +228,13 @@ function GameBoard() {
 					}));
 				} else if (data.type === "round_skipped") {
 					setSkippedWord({ word: data.word, theme: data.theme });
+				} else if (data.type === "game_over") {
+					setAppState((prev) => ({
+						...prev,
+						gameOver: true,
+						winners: data.winners,
+						players: data.players, // Update players to get final scores
+					}));
 				} else if (data.type === "error") {
 					setError(data.message);
 					setTimeout(() => setError(null), 5000);
@@ -164,7 +246,7 @@ function GameBoard() {
 
 		socket.onclose = () => {
 			console.log("Disconnected from game server");
-			setAppState((prev) => ({ ...prev, connected: false }));
+			setAppState((prev) => ({ ...prev, connected: false, roomId: null }));
 		};
 
 		socket.onerror = (error) => {
@@ -226,6 +308,18 @@ function GameBoard() {
 		}
 	}, [ws]);
 
+	const handleCreateRoom = useCallback(() => {
+		if (ws) {
+			ws.send(JSON.stringify({ type: "create_room" }));
+		}
+	}, [ws]);
+
+	const handleJoinRoom = useCallback((code: string) => {
+		if (ws) {
+			ws.send(JSON.stringify({ type: "join_room", roomId: code }));
+		}
+	}, [ws]);
+
 	const handleVoteTheme = useCallback((themeId: string) => {
 		setSelectedTheme(themeId);
 		if (ws) {
@@ -246,6 +340,15 @@ function GameBoard() {
 		}
 	}, [ws]);
 
+	const copyRoomCode = () => {
+		if (appState.roomId) {
+			navigator.clipboard.writeText(appState.roomId).then(() => {
+				setCopySuccess(true);
+				setTimeout(() => setCopySuccess(false), 2000);
+			});
+		}
+	};
+
 	const currentPlayer = appState.players.find(p => p.id === appState.currentPlayerId);
 
 	// Sort players by score for leaderboard
@@ -254,50 +357,69 @@ function GameBoard() {
 	// Get current theme info
 	const currentThemeInfo = appState.themes.find(t => t.id === appState.currentTheme);
 
-	// Count votes for each theme
-	const voteCounts: Record<string, number> = {};
-	Object.values(appState.themeVotes).forEach(themeId => {
-		voteCounts[themeId] = (voteCounts[themeId] || 0) + 1;
-	});
+	if (!appState.roomId) {
+		return <Lobby onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />;
+	}
 
 	// Theme selection screen
 	if (appState.themeSelectionActive) {
+		const isCreator = appState.creatorId === appState.currentPlayerId;
+		const activeThemeId = selectedTheme || appState.pendingTheme;
+
 		return (
 			<div className="game-container theme-selection-container">
-				<h1 className="game-title">Word Oracle</h1>
-
-				<div className={`connection-status ${appState.connected ? "connected" : "disconnected"}`}>
-					{appState.connected ? "~ Connected ~" : "Connecting..."}
+				<div className="room-header">
+					<h1 className="game-title">Word Oracle</h1>
+					<div className="room-info" onClick={copyRoomCode} title="Click to copy room code">
+						Room: <span className="room-code">{appState.roomId}</span>
+						<span className="copy-icon">{copySuccess ? "✅" : "📋"}</span>
+					</div>
 				</div>
 
 				<div className="theme-selection">
 					<h2 className="theme-selection-title">Choose a Theme</h2>
-					<p className="theme-selection-subtitle">Select a category for the words you'll be guessing</p>
+					<p className="theme-selection-subtitle">
+						{isCreator ? "Select a category for the words you'll be guessing" : "Waiting for the host to select a theme..."}
+					</p>
 
 					<div className="theme-grid">
-						{appState.themes.map((theme) => (
-							<button
-								key={theme.id}
-								className={`theme-card ${selectedTheme === theme.id ? "selected" : ""}`}
-								onClick={() => handleVoteTheme(theme.id)}
-							>
-								<span className="theme-icon">{theme.icon}</span>
-								<span className="theme-name">{theme.name}</span>
-								<span className="theme-description">{theme.description}</span>
-								{voteCounts[theme.id] > 0 && (
-									<span className="theme-votes">{voteCounts[theme.id]} vote{voteCounts[theme.id] > 1 ? "s" : ""}</span>
-								)}
-							</button>
-						))}
+						{appState.themes.map((theme) => {
+							const isSelected = appState.pendingTheme === theme.id;
+							const isLocalSelected = selectedTheme === theme.id;
+							const showSelected = isCreator ? (isLocalSelected || isSelected) : isSelected;
+
+							return (
+								<button
+									key={theme.id}
+									className={`theme-card ${showSelected ? "selected" : ""}`}
+									onClick={() => isCreator && handleVoteTheme(theme.id)}
+									disabled={!isCreator}
+									style={{ cursor: isCreator ? 'pointer' : 'default' }}
+								>
+									<span className="theme-icon">{theme.icon}</span>
+									<span className="theme-name">{theme.name}</span>
+									<span className="theme-description">{theme.description}</span>
+									{isSelected && !isCreator && (
+										<span className="theme-votes">Host Selection</span>
+									)}
+								</button>
+							);
+						})}
 					</div>
 
-					<button
-						className="confirm-theme-btn"
-						onClick={handleConfirmTheme}
-						disabled={!selectedTheme}
-					>
-						Start Game {selectedTheme && `with ${appState.themes.find(t => t.id === selectedTheme)?.name}`}
-					</button>
+					{isCreator ? (
+						<button
+							className="confirm-theme-btn"
+							onClick={handleConfirmTheme}
+							disabled={!activeThemeId}
+						>
+							Start Game {activeThemeId && `with ${appState.themes.find(t => t.id === activeThemeId)?.name}`}
+						</button>
+					) : (
+						<div style={{ marginTop: '20px', fontStyle: 'italic', opacity: 0.7, color: 'var(--text-brown)', fontSize: '1.2rem' }}>
+							Waiting for host to start the game...
+						</div>
+					)}
 
 					<div className="players-waiting">
 						<p>{appState.players.length} player{appState.players.length !== 1 ? "s" : ""} in lobby</p>
@@ -309,11 +431,11 @@ function GameBoard() {
 
 	return (
 		<div className="game-container">
-			<h1 className="game-title">Word Oracle</h1>
-
-			<div className={`connection-status ${appState.connected ? "connected" : "disconnected"}`}>
-				{appState.connected ? "~ Connected ~" : "Connecting..."}
+			<div className="room-header-small" onClick={copyRoomCode} title="Click to copy room code">
+				Room: <strong>{appState.roomId}</strong> {copySuccess ? "✅" : "📋"}
 			</div>
+
+			<h1 className="game-title">Word Oracle</h1>
 
 			{error && <div className="error-toast">{error}</div>}
 
@@ -328,6 +450,44 @@ function GameBoard() {
 						<p className="popup-category">{appState.themes.find(t => t.id === skippedWord.theme)?.name || skippedWord.theme}</p>
 						<button className="popup-btn" onClick={handleClosePopupAndNextRound}>
 							Next Round
+						</button>
+					</div>
+				</div>
+			)}
+
+			{/* Game Over popup */}
+			{appState.gameOver && (
+				<div className="popup-overlay">
+					<div className="popup-dialog">
+						<div className="popup-icon">🏆</div>
+						<h2>Game Over!</h2>
+
+						<div style={{ marginBottom: '20px' }}>
+							{appState.winners.length === 1 ? (
+								<p style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+									The winner is <strong style={{ color: '#FF6B6B' }}>{appState.winners[0].name}</strong>!
+								</p>
+							) : (
+								<p style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+									It's a tie between {appState.winners.map(w => w.name).join(" and ")}!
+								</p>
+							)}
+						</div>
+
+						<div className="final-scores">
+							<h3>Final Scores</h3>
+							<ul>
+								{sortedPlayers.map((p, i) => (
+									<li key={p.id} className={appState.winners.some(w => w.id === p.id) ? 'winner' : ''}>
+										<span>#{i + 1} {p.name} {p.id === appState.currentPlayerId && "(you)"}</span>
+										<span>{p.score} pts</span>
+									</li>
+								))}
+							</ul>
+						</div>
+
+						<button className="popup-btn" onClick={handleChangeTheme}>
+							Return to Menu
 						</button>
 					</div>
 				</div>
@@ -471,7 +631,7 @@ function GameBoard() {
 						</div>
 
 						<p className="input-hint">
-							Ask questions like "Is it alive?" or guess directly with "Is it a dog?"
+							Ask questions like "Is it alive?" or guess directly with "Guess: Is it a dog?"
 						</p>
 					</div>
 				</div>
@@ -481,7 +641,7 @@ function GameBoard() {
 				<button className="new-round-btn" onClick={handleSkipRound} disabled={isAnyoneThinking}>
 					Skip Round
 				</button>
-				<button className="change-theme-btn" onClick={handleChangeTheme} disabled={isAnyoneThinking}>
+				<button className="change-theme-btn" onClick={handleChangeTheme} disabled={isAnyoneThinking || appState.creatorId !== appState.currentPlayerId}>
 					Change Theme
 				</button>
 			</div>
