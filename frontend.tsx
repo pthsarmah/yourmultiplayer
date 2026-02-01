@@ -63,7 +63,7 @@ function Lobby({ onCreateRoom, onJoinRoom, error }: { onCreateRoom: () => void, 
 
 			<div className="lobby-card">
 				<h2 className="lobby-title">Start Playing</h2>
-				
+
 				<button className="create-room-btn" onClick={onCreateRoom}>
 					Create New Room
 				</button>
@@ -73,23 +73,23 @@ function Lobby({ onCreateRoom, onJoinRoom, error }: { onCreateRoom: () => void, 
 				</div>
 
 				<div className="join-room-section">
-					<input 
-						type="text" 
-						className="room-code-input" 
+					<input
+						type="text"
+						className="room-code-input"
 						placeholder="Enter Room Code"
 						value={roomCode}
 						onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
 						maxLength={8}
 					/>
-					<button 
-						className="join-room-btn" 
+					<button
+						className="join-room-btn"
 						onClick={() => onJoinRoom(roomCode)}
 						disabled={roomCode.length < 4}
 					>
 						Join Room
 					</button>
 				</div>
-				
+
 				{error && <div className="error-message">{error}</div>}
 			</div>
 		</div>
@@ -615,7 +615,7 @@ function GameBoard() {
 							<input
 								type="text"
 								className="chat-input"
-								placeholder="Ask a question or make a guess..."
+								placeholder="Ask a question or make a guess with Guess: <Your Guess>..."
 								value={inputValue}
 								onChange={(e) => setInputValue(e.target.value)}
 								onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
@@ -631,7 +631,8 @@ function GameBoard() {
 						</div>
 
 						<p className="input-hint">
-							Ask questions like "Is it alive?" or guess directly with "Guess: Is it a dog?"
+							Ask questions like "Is it alive?" or to make a guess use the format: <br/>
+							<span className="guess-format">Guess: &lt;Your Guess&gt;</span>
 						</p>
 					</div>
 				</div>

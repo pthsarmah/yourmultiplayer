@@ -475,6 +475,18 @@ body {
   color: rgba(93, 78, 55, 0.6);
 }
 
+.guess-format {
+  display: inline-block;
+  margin-top: 4px;
+  background: rgba(107, 91, 149, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: 'Gaegu', cursive;
+  font-weight: 700;
+  color: var(--oracle-purple);
+  border: 1px dashed var(--oracle-purple);
+}
+
 /* New round button */
 .new-round-btn {
   padding: 10px 20px;

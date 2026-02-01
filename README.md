@@ -4,6 +4,8 @@
 
 A multiplayer word guessing game powered by AI. Players join a game room, choose a theme, and take turns asking questions to an AI Oracle who knows a secret word. The Oracle answers truthfully without revealing the word directly.
 
+ **To make a guess write the guess in the format Guess: <Your Guess> and Send it**
+
 ## Features
 
 - **AI Oracle** - An LLM-powered oracle answers questions about the secret word using web search for accurate responses
